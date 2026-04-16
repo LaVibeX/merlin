@@ -53,6 +53,11 @@
               <option value="1.75">1.75x</option>
               <option value="2">2x</option>
             </select>
+            <button id="splitToggleBtn" class="secondary icon-btn" type="button" aria-label="Split Screen" title="Split Screen">
+              <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor" aria-hidden="true">
+                <path d="M600-120q-33 0-56.5-23.5T520-200v-560q0-33 23.5-56.5T600-840h160q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H600Zm0-640v560h160v-560H600ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h160q33 0 56.5 23.5T440-760v560q0 33-23.5 56.5T360-120H200Zm0-640v560h160v-560H200Zm560 0H600h160Zm-400 0H200h160Z"/>
+              </svg>
+            </button>
             <button id="themeToggleBtn" class="secondary">Dark Mode</button>
             <button id="bionicToggleBtn" class="secondary">Bionic: Off</button>
             <button id="readBtn">Read Aloud</button>
@@ -73,6 +78,8 @@
             </div>
             <iframe id="pdfFrame" title="PDF preview"></iframe>
           </article>
+
+          <div id="splitDivider" class="split-divider" role="separator" aria-orientation="vertical" aria-label="Resize split view" title="Drag to resize panes"></div>
 
           <article id="textReaderPanel" class="text-reader">
             <div class="text-reader-top">
@@ -105,6 +112,12 @@
         </div>
       </section>
     </main>
+
+    <button id="focusExitBtn" class="secondary icon-btn focus-exit-btn" type="button" aria-label="Exit Focus View" title="Exit Focus View">
+      <svg xmlns="http://www.w3.org/2000/svg" height="24px" viewBox="0 -960 960 960" width="24px" fill="currentColor" aria-hidden="true">
+        <path d="M600-120q-33 0-56.5-23.5T520-200v-560q0-33 23.5-56.5T600-840h160q33 0 56.5 23.5T840-760v560q0 33-23.5 56.5T760-120H600Zm0-640v560h160v-560H600ZM200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h160q33 0 56.5 23.5T440-760v560q0 33-23.5 56.5T360-120H200Zm0-640v560h160v-560H200Zm560 0H600h160Zm-400 0H200h160Z"/>
+      </svg>
+    </button>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script src="{{ url_for('static', filename='app.js') }}"></script>

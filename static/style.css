@@ -197,8 +197,16 @@ button.secondary {
   color: var(--ink);
 }
 
+button.secondary.icon-btn.is-active {
+  background: #d9ece9;
+}
+
 body.dark-mode button.secondary {
   background: #213038;
+}
+
+body.dark-mode button.secondary.icon-btn.is-active {
+  background: #29414b;
 }
 
 button.accent {
@@ -280,6 +288,43 @@ button.accent:hover {
   display: grid;
   grid-template-columns: 1.35fr 0.85fr;
   gap: 0.85rem;
+  align-items: stretch;
+}
+
+.split-divider {
+  display: none;
+  width: 12px;
+  cursor: col-resize;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(100, 116, 139, 0.15), rgba(100, 116, 139, 0.05));
+  position: relative;
+  touch-action: none;
+}
+
+.split-divider::before {
+  content: "";
+  position: absolute;
+  top: 0.9rem;
+  bottom: 0.9rem;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(93, 106, 112, 0.45);
+}
+
+.viewer,
+.text-reader {
+  min-width: 0;
+}
+
+body.resizing-split {
+  user-select: none;
+  cursor: col-resize;
+}
+
+body.resizing-split * {
+  cursor: col-resize !important;
 }
 
 .viewer,
@@ -345,11 +390,15 @@ button.accent:hover {
   max-width: 100%;
   height: 100%;
   border-radius: 0;
-  background: #fff;
+  background: var(--bg);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .viewer:fullscreen #pdfFrame {
-  height: 100%;
+  flex: 1;
+  height: auto;
   border-radius: 0;
 }
 
@@ -359,11 +408,15 @@ button.accent:hover {
   max-width: 100%;
   height: 100%;
   border-radius: 0;
-  background: #fff;
+  background: var(--bg);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .viewer:-webkit-full-screen #pdfFrame {
-  height: 100%;
+  flex: 1;
+  height: auto;
   border-radius: 0;
 }
 
@@ -389,13 +442,19 @@ button.accent:hover {
   max-width: 100%;
   height: 100%;
   border-radius: 0;
-  background: #fff;
+  background: var(--bg);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .text-reader:fullscreen .paper-text {
   min-height: 0;
-  height: calc(100vh - 90px);
+  flex: 1;
   border-radius: 0;
+  padding: 1rem;
+  border: none;
+  box-sizing: border-box;
 }
 
 .text-reader:-webkit-full-screen {
@@ -404,13 +463,19 @@ button.accent:hover {
   max-width: 100%;
   height: 100%;
   border-radius: 0;
-  background: #fff;
+  background: var(--bg);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .text-reader:-webkit-full-screen .paper-text {
   min-height: 0;
-  height: calc(100vh - 90px);
+  flex: 1;
   border-radius: 0;
+  padding: 1rem;
+  border: none;
+  box-sizing: border-box;
 }
 
 .page-title {
@@ -450,6 +515,78 @@ button.accent:hover {
   display: grid;
   grid-template-columns: 0.72fr 1.28fr;
   gap: 0.85rem;
+}
+
+.focus-exit-btn {
+  position: fixed;
+  top: 0.8rem;
+  right: 0.8rem;
+  z-index: 30;
+  display: none;
+  box-shadow: var(--shadow);
+}
+
+body.focus-reader .focus-exit-btn {
+  display: inline-flex;
+}
+
+body.focus-reader .bg-shape,
+body.focus-reader .sidebar,
+body.focus-reader .toolbar,
+body.focus-reader .notes-grid {
+  display: none;
+}
+
+body.focus-reader .layout {
+  grid-template-columns: 1fr;
+  gap: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+body.focus-reader .content {
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+body.focus-reader .grid {
+  grid-template-columns: var(--split-viewer-width, 1fr) 12px var(--split-text-width, 1fr);
+  gap: 0;
+  height: 100vh;
+}
+
+body.focus-reader .split-divider {
+  display: block;
+}
+
+body.focus-reader .viewer,
+body.focus-reader .text-reader {
+  height: 100vh;
+  min-height: 0;
+  max-height: none;
+  border-radius: 0;
+  border-top: 0;
+  border-bottom: 0;
+}
+
+body.focus-reader .viewer {
+  border-left: 0;
+}
+
+body.focus-reader .text-reader {
+  border-right: 0;
+}
+
+body.focus-reader #pdfFrame,
+body.focus-reader .paper-text {
+  height: calc(100vh - 88px);
+  max-height: none;
+  min-height: 0;
 }
 
 #notesInput {
@@ -547,6 +684,31 @@ body.dark-mode .page-title {
   .grid,
   .notes-grid {
     grid-template-columns: 1fr;
+  }
+
+  .split-divider {
+    display: none;
+  }
+
+  body.focus-reader .focus-exit-btn {
+    top: 0.6rem;
+    right: 0.6rem;
+  }
+
+  body.focus-reader .grid {
+    height: auto;
+  }
+
+  body.focus-reader .viewer,
+  body.focus-reader .text-reader {
+    height: auto;
+    min-height: 360px;
+  }
+
+  body.focus-reader #pdfFrame,
+  body.focus-reader .paper-text {
+    height: 360px;
+    min-height: 360px;
   }
 
   .viewer {

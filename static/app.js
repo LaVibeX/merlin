@@ -3,6 +3,9 @@ const state = {
   pdfs: [],
   pages: [],
   bionicReading: false,
+  focusModeEnabled: false,
+  splitViewerRatio: 0.55,
+  isResizingSplit: false,
   currentMode: "server",
   localFiles: new Map(),
   currentObjectUrl: "",
@@ -40,9 +43,20 @@ const el = {
   readBtn: document.getElementById("readBtn"),
   stopReadBtn: document.getElementById("stopReadBtn"),
   saveBtn: document.getElementById("saveBtn"),
+  splitToggleBtn: document.getElementById("splitToggleBtn"),
+  focusExitBtn: document.getElementById("focusExitBtn"),
+  splitDivider: document.getElementById("splitDivider"),
+  splitGrid: document.querySelector(".grid"),
   selectedLineHint: document.getElementById("selectedLineHint"),
   toast: document.getElementById("toast"),
 };
+
+const SPLIT_RATIO_KEY = "merlin-split-view-ratio";
+const FOCUS_MODE_KEY = "merlin-focus-mode-enabled";
+const SPLIT_MIN_RATIO = 0.3;
+const SPLIT_MAX_RATIO = 0.7;
+const SPLIT_HANDLE_WIDTH = 12;
+const SPLIT_PANE_MIN_WIDTH = 240;
 
 function showToast(message) {
   el.toast.textContent = message;
@@ -55,6 +69,10 @@ function showToast(message) {
   state.toastTimer = setTimeout(() => {
     el.toast.classList.remove("visible");
   }, 1800);
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function highlightKey(page, line) {
@@ -232,6 +250,112 @@ function resetReaderPanels() {
   state.annotations = { notes: "", highlights: [], comments: [] };
   state.selectedLine = null;
   el.selectedLineHint.textContent = "Select a line in the text panel first.";
+}
+
+function updateSplitToggleLabel() {
+  const label = state.focusModeEnabled ? "Exit Focus View" : "Focus Split View";
+  el.splitToggleBtn.setAttribute("aria-label", label);
+  el.splitToggleBtn.setAttribute("title", label);
+  el.splitToggleBtn.classList.toggle("is-active", state.focusModeEnabled);
+}
+
+function applySplitWidthsFromRatio() {
+  if (!state.focusModeEnabled || !el.splitGrid) {
+    return;
+  }
+
+  const gridRect = el.splitGrid.getBoundingClientRect();
+  if (!gridRect.width) {
+    return;
+  }
+
+  const availableWidth = gridRect.width - SPLIT_HANDLE_WIDTH;
+  if (availableWidth < SPLIT_PANE_MIN_WIDTH * 2) {
+    return;
+  }
+
+  const viewerWidth = clamp(
+    Math.round(availableWidth * state.splitViewerRatio),
+    SPLIT_PANE_MIN_WIDTH,
+    Math.max(SPLIT_PANE_MIN_WIDTH, availableWidth - SPLIT_PANE_MIN_WIDTH),
+  );
+  const textWidth = Math.max(SPLIT_PANE_MIN_WIDTH, availableWidth - viewerWidth);
+
+  el.splitGrid.style.setProperty("--split-viewer-width", `${viewerWidth}px`);
+  el.splitGrid.style.setProperty("--split-text-width", `${textWidth}px`);
+}
+
+function setFocusModeEnabled(enabled) {
+  state.focusModeEnabled = enabled;
+  document.body.classList.toggle("focus-reader", enabled);
+  localStorage.setItem(FOCUS_MODE_KEY, enabled ? "true" : "false");
+  updateSplitToggleLabel();
+
+  if (enabled) {
+    applySplitWidthsFromRatio();
+  } else {
+    if (el.splitGrid) {
+      el.splitGrid.style.removeProperty("--split-viewer-width");
+      el.splitGrid.style.removeProperty("--split-text-width");
+    }
+  }
+}
+
+function setSplitRatioFromClientX(clientX) {
+  if (!el.splitGrid || window.matchMedia("(max-width: 1100px)").matches) {
+    return;
+  }
+
+  const gridRect = el.splitGrid.getBoundingClientRect();
+  const availableWidth = gridRect.width - SPLIT_HANDLE_WIDTH;
+  if (availableWidth <= 0) {
+    return;
+  }
+
+  const relativeX = clamp(
+    clientX - gridRect.left - SPLIT_HANDLE_WIDTH / 2,
+    SPLIT_PANE_MIN_WIDTH,
+    availableWidth - SPLIT_PANE_MIN_WIDTH,
+  );
+  const ratio = clamp(relativeX / availableWidth, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO);
+  state.splitViewerRatio = ratio;
+  localStorage.setItem(SPLIT_RATIO_KEY, String(ratio));
+  applySplitWidthsFromRatio();
+}
+
+function toggleSplitView() {
+  setFocusModeEnabled(!state.focusModeEnabled);
+  showToast(state.focusModeEnabled ? "Focus split view enabled." : "Focus split view disabled.");
+}
+
+function beginSplitResize(event) {
+  if (event.button !== 0 || window.matchMedia("(max-width: 1100px)").matches) {
+    return;
+  }
+
+  event.preventDefault();
+  state.isResizingSplit = true;
+  document.body.classList.add("resizing-split");
+
+  const stopResize = () => {
+    state.isResizingSplit = false;
+    document.body.classList.remove("resizing-split");
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", stopResize);
+    window.removeEventListener("pointercancel", stopResize);
+  };
+
+  const onMove = (moveEvent) => {
+    if (!state.isResizingSplit) {
+      return;
+    }
+    setSplitRatioFromClientX(moveEvent.clientX);
+  };
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", stopResize, { once: true });
+  window.addEventListener("pointercancel", stopResize, { once: true });
+  setSplitRatioFromClientX(event.clientX);
 }
 
 function renderTextPanel() {
@@ -883,6 +1007,9 @@ function bindEvents() {
   });
   el.addCommentBtn.addEventListener("click", addComment);
   el.saveBtn.addEventListener("click", saveAnnotations);
+  el.splitToggleBtn.addEventListener("click", toggleSplitView);
+  el.focusExitBtn.addEventListener("click", toggleSplitView);
+  el.splitDivider.addEventListener("pointerdown", beginSplitResize);
   el.toggleSidebarBtn.addEventListener("click", toggleSidebarView);
   el.themeToggleBtn.addEventListener("click", toggleTheme);
   el.bionicToggleBtn.addEventListener("click", toggleBionicReading);
@@ -900,11 +1027,19 @@ function bindEvents() {
 }
 
 bindEvents();
+window.addEventListener("resize", () => {
+  applySplitWidthsFromRatio();
+});
 if ("onvoiceschanged" in speechSynthesis) {
   speechSynthesis.onvoiceschanged = () => {
     getEnglishVoice();
   };
 }
+const savedRatio = Number.parseFloat(localStorage.getItem(SPLIT_RATIO_KEY));
+if (!Number.isNaN(savedRatio)) {
+  state.splitViewerRatio = clamp(savedRatio, SPLIT_MIN_RATIO, SPLIT_MAX_RATIO);
+}
+setFocusModeEnabled(localStorage.getItem(FOCUS_MODE_KEY) === "true");
 applyTheme(localStorage.getItem("merlin-theme") || "light");
 updateBionicButtonLabel();
 updateSidebarToggleLabel();
