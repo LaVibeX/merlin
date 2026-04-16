@@ -323,6 +323,14 @@ function clearReadingLineUI() {
 }
 
 function setReadingLine(page, line) {
+  if (
+    state.currentReadingLine &&
+    Number(state.currentReadingLine.page) === Number(page) &&
+    Number(state.currentReadingLine.line) === Number(line)
+  ) {
+    return;
+  }
+
   clearReadingLineUI();
   state.currentReadingLine = { page, line };
 
@@ -548,17 +556,47 @@ function buildSpeechLineQueue() {
 
     const sentenceText = sentenceBuffer.join(" ").replace(/\s+/g, " ").trim();
     if (sentenceText) {
-      const chunks = splitSpeechText(sentenceText);
-      for (let idx = 0; idx < chunks.length; idx += 1) {
-        let anchor = sentenceStart;
+      const lineRanges = [];
+      let cursor = 0;
 
-        if (sentenceLineRefs.length > 1 && chunks.length > 1) {
-          const ratio = idx / (chunks.length - 1);
-          const anchorIndex = Math.round(ratio * (sentenceLineRefs.length - 1));
-          anchor = sentenceLineRefs[anchorIndex] || sentenceStart;
+      for (let lineIdx = 0; lineIdx < sentenceBuffer.length; lineIdx += 1) {
+        const lineText = String(sentenceBuffer[lineIdx] || "").replace(/\s+/g, " ").trim();
+        if (!lineText) {
+          continue;
         }
 
-        queue.push({ page: anchor.page, line: anchor.line, text: chunks[idx] });
+        const lineRef = sentenceLineRefs[lineIdx] || sentenceStart;
+        const start = cursor;
+        const end = start + lineText.length;
+        lineRanges.push({ page: lineRef.page, line: lineRef.line, start, end });
+        cursor = end + 1;
+      }
+
+      const chunks = splitSpeechText(sentenceText);
+      let chunkSearchStart = 0;
+
+      for (let idx = 0; idx < chunks.length; idx += 1) {
+        const chunkText = chunks[idx];
+        const foundAt = sentenceText.indexOf(chunkText, chunkSearchStart);
+        const chunkStart = foundAt >= 0 ? foundAt : chunkSearchStart;
+        chunkSearchStart = chunkStart + chunkText.length;
+
+        let anchor = sentenceStart;
+        for (const range of lineRanges) {
+          if (chunkStart >= range.start) {
+            anchor = { page: range.page, line: range.line };
+            continue;
+          }
+          break;
+        }
+
+        queue.push({
+          page: anchor.page,
+          line: anchor.line,
+          text: chunkText,
+          chunkStart,
+          lineRanges,
+        });
       }
     }
 
@@ -658,6 +696,31 @@ function readAloud() {
         } else {
           showToast("Reading started.");
         }
+      }
+    };
+
+    utterance.onboundary = (event) => {
+      if (currentSession !== state.speechSessionId) {
+        return;
+      }
+
+      if (typeof event.charIndex !== "number" || !Array.isArray(entry.lineRanges)) {
+        return;
+      }
+
+      const absoluteIndex = Math.max(0, Number(entry.chunkStart || 0) + event.charIndex);
+      let activeLine = null;
+
+      for (const range of entry.lineRanges) {
+        if (absoluteIndex >= range.start) {
+          activeLine = range;
+          continue;
+        }
+        break;
+      }
+
+      if (activeLine) {
+        setReadingLine(activeLine.page, activeLine.line);
       }
     };
 
