@@ -291,6 +291,14 @@ button.accent:hover {
   background: var(--surface-soft);
 }
 
+.viewer {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 290px);
+  min-height: 420px;
+  max-height: 680px;
+}
+
 .viewer h3,
 .text-reader h3,
 .notes-grid h3 {
@@ -323,7 +331,9 @@ button.accent:hover {
 
 #pdfFrame {
   width: 100%;
-  height: 560px;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
   border: 1px solid #d7dfdc;
   border-radius: 8px;
   background: var(--frame-bg);
@@ -339,7 +349,7 @@ button.accent:hover {
 }
 
 .viewer:fullscreen #pdfFrame {
-  height: calc(100vh - 90px);
+  height: 100%;
   border-radius: 0;
 }
 
@@ -353,7 +363,7 @@ button.accent:hover {
 }
 
 .viewer:-webkit-full-screen #pdfFrame {
-  height: calc(100vh - 90px);
+  height: 100%;
   border-radius: 0;
 }
 
@@ -537,6 +547,12 @@ body.dark-mode .page-title {
   .grid,
   .notes-grid {
     grid-template-columns: 1fr;
+  }
+
+  .viewer {
+    height: 360px;
+    min-height: 360px;
+    max-height: none;
   }
 
   #pdfFrame,

@@ -503,11 +503,27 @@ function splitSpeechText(text, maxChunkLength = 900) {
 
 function getEnglishVoice() {
   const voices = speechSynthesis.getVoices();
-  return (
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en-us")) ||
-    voices.find((voice) => voice.lang.toLowerCase().startsWith("en")) ||
-    null
-  );
+  if (!voices.length) {
+    return null;
+  }
+
+  const normalizedVoices = voices.map((voice) => ({
+    voice,
+    name: (voice.name || "").toLowerCase(),
+    lang: (voice.lang || "").toLowerCase(),
+  }));
+
+  // Prefer Chrome's natural-sounding Google US English voice when present.
+  const preferred =
+    normalizedVoices.find((entry) => entry.name === "google us english 4") ||
+    normalizedVoices.find((entry) => entry.name.includes("google us english 4")) ||
+    normalizedVoices.find(
+      (entry) => entry.name.includes("google") && entry.lang.startsWith("en-us"),
+    ) ||
+    normalizedVoices.find((entry) => entry.lang.startsWith("en-us")) ||
+    normalizedVoices.find((entry) => entry.lang.startsWith("en"));
+
+  return preferred ? preferred.voice : null;
 }
 
 function buildSpeechLineQueue() {
@@ -520,6 +536,36 @@ function buildSpeechLineQueue() {
 
   const queue = [];
   let readingStarted = startPage === null;
+  const sentenceEndPattern = /[.!?]["')\]]*$/;
+  let sentenceBuffer = [];
+  let sentenceLineRefs = [];
+  let sentenceStart = null;
+
+  const flushSentence = () => {
+    if (!sentenceBuffer.length || !sentenceStart) {
+      return;
+    }
+
+    const sentenceText = sentenceBuffer.join(" ").replace(/\s+/g, " ").trim();
+    if (sentenceText) {
+      const chunks = splitSpeechText(sentenceText);
+      for (let idx = 0; idx < chunks.length; idx += 1) {
+        let anchor = sentenceStart;
+
+        if (sentenceLineRefs.length > 1 && chunks.length > 1) {
+          const ratio = idx / (chunks.length - 1);
+          const anchorIndex = Math.round(ratio * (sentenceLineRefs.length - 1));
+          anchor = sentenceLineRefs[anchorIndex] || sentenceStart;
+        }
+
+        queue.push({ page: anchor.page, line: anchor.line, text: chunks[idx] });
+      }
+    }
+
+    sentenceBuffer = [];
+    sentenceLineRefs = [];
+    sentenceStart = null;
+  };
 
   for (const page of state.pages) {
     const pageNumber = Number(page.page);
@@ -543,9 +589,19 @@ function buildSpeechLineQueue() {
         continue;
       }
 
-      queue.push({ page: pageNumber, line: lineNumber, text });
+      if (!sentenceStart) {
+        sentenceStart = { page: pageNumber, line: lineNumber };
+      }
+
+      sentenceBuffer.push(text);
+      sentenceLineRefs.push({ page: pageNumber, line: lineNumber });
+      if (sentenceEndPattern.test(text)) {
+        flushSentence();
+      }
     }
   }
+
+  flushSentence();
 
   return queue;
 }
@@ -553,7 +609,7 @@ function buildSpeechLineQueue() {
 function getReadingRate() {
   const rawValue = Number.parseFloat(el.speedSelect.value);
   if (Number.isNaN(rawValue)) {
-    return 0.95;
+    return 1.25;
   }
   return Math.min(Math.max(rawValue, 0.5), 2);
 }
@@ -781,6 +837,11 @@ function bindEvents() {
 }
 
 bindEvents();
+if ("onvoiceschanged" in speechSynthesis) {
+  speechSynthesis.onvoiceschanged = () => {
+    getEnglishVoice();
+  };
+}
 applyTheme(localStorage.getItem("merlin-theme") || "light");
 updateBionicButtonLabel();
 updateSidebarToggleLabel();

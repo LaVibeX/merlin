@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import uuid
+from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from flask import Flask, jsonify, render_template, request, send_file
 from pypdf import PdfReader
+
+try:
+    from wordfreq import zipf_frequency
+except ImportError:  # pragma: no cover - optional dependency guard
+    zipf_frequency = None
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -18,6 +25,96 @@ ANNOTATIONS_FILE = DATA_DIR / "annotations.json"
 DEFAULT_SETTINGS: dict[str, Any] = {"pdf_folder": ""}
 
 app = Flask(__name__)
+
+
+JOINABLE_COMMON_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "calculate",
+    "for",
+    "from",
+    "has",
+    "have",
+    "in",
+    "integrate",
+    "into",
+    "is",
+    "it",
+    "its",
+    "key",
+    "more",
+    "not",
+    "of",
+    "on",
+    "or",
+    "out",
+    "size",
+    "such",
+    "that",
+    "the",
+    "their",
+    "there",
+    "this",
+    "to",
+    "update",
+    "was",
+    "we",
+    "were",
+    "with",
+    "authentication",
+    "done",
+    "once",
+    "part",
+}
+
+
+@lru_cache(maxsize=1)
+def get_english_word_set() -> set[str]:
+    words = set(JOINABLE_COMMON_WORDS)
+    words.update({"a", "i"})
+
+    # Use a system dictionary when available for safer split-word repair.
+    for candidate in (Path("/usr/share/dict/words"), Path("/usr/dict/words")):
+        if not candidate.exists() or not candidate.is_file():
+            continue
+        try:
+            for raw in candidate.read_text(encoding="utf-8", errors="ignore").splitlines():
+                token = raw.strip().lower()
+                if token.isalpha():
+                    words.add(token)
+            break
+        except OSError:
+            continue
+
+    return words
+
+
+def is_likely_english_word(token: str) -> bool:
+    normalized = token.strip().lower()
+    return bool(normalized) and normalized.isalpha() and normalized in get_english_word_set()
+
+
+def english_word_score(token: str) -> float:
+    normalized = token.strip().lower()
+    if not normalized.isalpha():
+        return 0.0
+
+    if normalized in {"a", "i"}:
+        return 8.0
+
+    if normalized in JOINABLE_COMMON_WORDS:
+        return 7.0
+
+    if zipf_frequency is not None:
+        return float(zipf_frequency(normalized, "en"))
+
+    return 1.0 if is_likely_english_word(normalized) else 0.0
 
 
 def ensure_data_files() -> None:
@@ -71,6 +168,89 @@ def safe_pdf_path(root: Path, rel_path: str) -> Path:
     return candidate
 
 
+def normalize_extracted_line(line: str) -> str:
+    cleaned = re.sub(r"\s+", " ", line).strip()
+
+    one_char_hint = bool(
+        re.search(r"\b[A-Za-z]\s+[A-Za-z]{2,}\b|\b[A-Za-z]{2,}\s+[A-Za-z]\b", cleaned)
+    )
+    suffix_hint = bool(
+        re.search(
+            r"\b[A-Za-z]{4,}\s+(ion|tion|sion|ment|ing|ized|ation|ations|late|ality|ance|ence)\b",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+    )
+    artifact_hint = one_char_hint or suffix_hint
+
+    def merge_left_single(match: re.Match[str]) -> str:
+        left, right = match.group(1), match.group(2)
+        merged = f"{left}{right}"
+        right_score = english_word_score(right)
+        merged_score = english_word_score(merged)
+
+        if left.lower() in {"a", "i"} and right_score > 0 and merged_score <= right_score:
+            return match.group(0)
+
+        if right_score <= 0 or merged_score > 0:
+            return merged
+        return match.group(0)
+
+    def merge_right_single(match: re.Match[str]) -> str:
+        left, right = match.group(1), match.group(2)
+        merged = f"{left}{right}"
+        left_score = english_word_score(left)
+        merged_score = english_word_score(merged)
+
+        if right.lower() in {"a", "i"} and left_score > 0:
+            return match.group(0)
+
+        if left_score <= 0 or merged_score > 0:
+            return merged
+        return match.group(0)
+
+    def merge_suffix_fragment(match: re.Match[str]) -> str:
+        left, right = match.group(1), match.group(2)
+        merged = f"{left}{right}"
+        left_score = english_word_score(left)
+        right_score = english_word_score(right)
+        merged_score = english_word_score(merged)
+
+        if merged_score > 0 and merged_score >= max(left_score, right_score) - 0.6:
+            return merged
+
+        if artifact_hint and left_score <= 0 and len(left) >= 4:
+            return merged
+
+        return match.group(0)
+
+    # Pass 1: fix splits like "t he", "i ntegrate", "O nce".
+    left_single_pattern = re.compile(r"\b([A-Za-z])\s+([A-Za-z]{2,})\b")
+    previous = None
+    while cleaned != previous:
+        previous = cleaned
+        cleaned = left_single_pattern.sub(merge_left_single, cleaned)
+
+    # Pass 2: fix splits like "an d", "don e", but avoid "we i ntegrate"-style over-joins.
+    right_single_pattern = re.compile(r"\b([A-Za-z]{2,})\s+([A-Za-z])\b(?!\s+[A-Za-z]{2,}\b)")
+    previous = None
+    while cleaned != previous:
+        previous = cleaned
+        cleaned = right_single_pattern.sub(merge_right_single, cleaned)
+
+    # Pass 3: fix larger suffix splits like "authenticat ion" and "calcu late".
+    suffix_fragment_pattern = re.compile(
+        r"\b([A-Za-z]{4,})\s+(ion|tion|sion|ment|ing|ized|ation|ations|late|ality|ance|ence)\b",
+        flags=re.IGNORECASE,
+    )
+    previous = None
+    while cleaned != previous:
+        previous = cleaned
+        cleaned = suffix_fragment_pattern.sub(merge_suffix_fragment, cleaned)
+
+    return cleaned
+
+
 def extract_text_lines(pdf_path: Path) -> list[dict[str, Any]]:
     reader = PdfReader(str(pdf_path))
     return extract_text_lines_from_reader(reader)
@@ -81,7 +261,7 @@ def extract_text_lines_from_reader(reader: PdfReader) -> list[dict[str, Any]]:
 
     for index, page in enumerate(reader.pages, start=1):
         raw_text = page.extract_text() or ""
-        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        lines = [normalize_extracted_line(line) for line in raw_text.splitlines() if line.strip()]
         pages.append({"page": index, "lines": lines})
 
     return pages
