@@ -11,6 +11,7 @@ const state = {
   currentObjectUrl: "",
   speechSessionId: 0,
   currentReadingLine: null,
+  isReadingPaused: false,
   annotations: {
     notes: "",
     highlights: [],
@@ -41,7 +42,9 @@ const el = {
   viewerPanel: document.getElementById("viewerPanel"),
   textReaderPanel: document.getElementById("textReaderPanel"),
   readBtn: document.getElementById("readBtn"),
+  pauseReadBtn: document.getElementById("pauseReadBtn"),
   stopReadBtn: document.getElementById("stopReadBtn"),
+  downloadAudioBtn: document.getElementById("downloadAudioBtn"),
   saveBtn: document.getElementById("saveBtn"),
   splitToggleBtn: document.getElementById("splitToggleBtn"),
   focusExitBtn: document.getElementById("focusExitBtn"),
@@ -257,6 +260,23 @@ function updateSplitToggleLabel() {
   el.splitToggleBtn.setAttribute("aria-label", label);
   el.splitToggleBtn.setAttribute("title", label);
   el.splitToggleBtn.classList.toggle("is-active", state.focusModeEnabled);
+  updatePauseButtonVisibility();
+}
+
+function updatePauseButtonVisibility() {
+  const shouldShow = state.focusModeEnabled && (speechSynthesis.speaking || speechSynthesis.pending || state.isReadingPaused);
+  el.pauseReadBtn.style.display = shouldShow ? "" : "none";
+}
+
+function updatePauseButtonState() {
+  const shouldShow = state.focusModeEnabled && (speechSynthesis.speaking || speechSynthesis.pending || state.isReadingPaused);
+  el.pauseReadBtn.style.display = shouldShow ? "" : "none";
+
+  if (state.isReadingPaused) {
+    el.pauseReadBtn.textContent = "Resume";
+  } else {
+    el.pauseReadBtn.textContent = "Pause";
+  }
 }
 
 function applySplitWidthsFromRatio() {
@@ -789,6 +809,7 @@ function readAloud() {
   }
 
   state.speechSessionId += 1;
+  state.isReadingPaused = false;
   const currentSession = state.speechSessionId;
   speechSynthesis.cancel();
   clearReadingLineUI();
@@ -815,6 +836,7 @@ function readAloud() {
       setReadingLine(entry.page, entry.line);
       if (!started) {
         started = true;
+        updatePauseButtonState();
         if (state.selectedLine) {
           showToast(`Reading started from page ${state.selectedLine.page}, line ${state.selectedLine.line}.`);
         } else {
@@ -855,6 +877,8 @@ function readAloud() {
 
       if (i === speechQueue.length - 1) {
         clearReadingLineUI();
+        state.isReadingPaused = false;
+        updatePauseButtonState();
       }
     };
 
@@ -862,6 +886,8 @@ function readAloud() {
       if (currentSession !== state.speechSessionId) {
         return;
       }
+      state.isReadingPaused = false;
+      updatePauseButtonState();
       showToast("Could not continue audio reading.");
       clearReadingLineUI();
     };
@@ -878,9 +904,32 @@ function readAloud() {
 
 function stopReading() {
   state.speechSessionId += 1;
+  state.isReadingPaused = false;
   speechSynthesis.cancel();
   clearReadingLineUI();
+  updatePauseButtonState();
   showToast("Reading stopped.");
+}
+
+function pauseReading() {
+  if (!speechSynthesis.speaking && !speechSynthesis.pending) {
+    showToast("No audio is playing.");
+    return;
+  }
+
+  speechSynthesis.pause();
+  state.isReadingPaused = true;
+  updatePauseButtonState();
+  showToast("Reading paused.");
+}
+
+function resumeReading() {
+  if (state.isReadingPaused) {
+    speechSynthesis.resume();
+    state.isReadingPaused = false;
+    updatePauseButtonState();
+    showToast("Reading resumed.");
+  }
 }
 
 function applyTheme(themeName) {
@@ -996,6 +1045,43 @@ async function toggleTextFullscreen() {
   }
 }
 
+async function downloadAudio() {
+  if (!state.currentFile) {
+    showToast("Open a paper first.");
+    return;
+  }
+
+  try {
+    el.downloadAudioBtn.disabled = true;
+    el.downloadAudioBtn.textContent = "Generating...";
+
+    const params = new URLSearchParams({ file: state.currentFile });
+    const response = await fetch(`/api/audio?${params}`, { method: "POST" });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || "Failed to generate audio");
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${state.currentFile.split("/").pop().replace(".pdf", "")}.mp3`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast("Audio downloaded successfully!");
+  } catch (err) {
+    showToast(err.message || "Failed to generate audio.");
+  } finally {
+    el.downloadAudioBtn.disabled = false;
+    el.downloadAudioBtn.textContent = "Download MP3";
+  }
+}
+
 function bindEvents() {
   el.pickFolderBtn.addEventListener("click", pickFolder);
   el.refreshBtn.addEventListener("click", () => {
@@ -1023,7 +1109,15 @@ function bindEvents() {
     updateExpandTextButtonLabel();
   });
   el.readBtn.addEventListener("click", readAloud);
+  el.pauseReadBtn.addEventListener("click", () => {
+    if (state.isReadingPaused) {
+      resumeReading();
+    } else {
+      pauseReading();
+    }
+  });
   el.stopReadBtn.addEventListener("click", stopReading);
+  el.downloadAudioBtn.addEventListener("click", downloadAudio);
 }
 
 bindEvents();

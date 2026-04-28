@@ -530,6 +530,19 @@ body.focus-reader .focus-exit-btn {
   display: inline-flex;
 }
 
+.focus-pause-btn {
+  position: fixed;
+  top: 0.8rem;
+  right: 3.6rem;
+  z-index: 30;
+  display: none;
+  box-shadow: var(--shadow);
+}
+
+body.focus-reader .focus-pause-btn {
+  display: inline-flex;
+}
+
 body.focus-reader .bg-shape,
 body.focus-reader .sidebar,
 body.focus-reader .toolbar,

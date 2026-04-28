@@ -4,6 +4,7 @@ import io
 import json
 import re
 import uuid
+import tempfile
 from functools import lru_cache
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request, send_file
 from pypdf import PdfReader
+from gtts import gTTS
 
 try:
     from wordfreq import zipf_frequency
@@ -418,6 +420,54 @@ def save_annotations() -> Any:
     write_json(ANNOTATIONS_FILE, data)
 
     return jsonify({"status": "ok", "updatedAt": sanitized["updatedAt"]})
+
+
+@app.post("/api/audio")
+def generate_audio() -> Any:
+    ensure_data_files()
+    root = get_pdf_root()
+    if root is None:
+        return jsonify({"error": "No valid PDF folder configured."}), 400
+
+    rel_path = str(request.args.get("file", "")).strip()
+    if not rel_path:
+        return jsonify({"error": "Query param 'file' is required."}), 400
+
+    try:
+        target = safe_pdf_path(root, rel_path)
+        pages = extract_text_lines(target)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:  # pragma: no cover - protective API boundary
+        return jsonify({"error": f"Unable to parse PDF: {exc}"}), 500
+
+    try:
+        # Extract all text from pages
+        full_text = " ".join(
+            " ".join(line for line in page["lines"])
+            for page in pages
+        )
+
+        if not full_text.strip():
+            return jsonify({"error": "No text found in PDF."}), 400
+
+        # Generate audio using gTTS
+        tts = gTTS(text=full_text, lang='en', slow=False)
+        
+        # Create temporary audio file
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp_path = tmp.name
+        
+        tts.save(tmp_path)
+        
+        return send_file(
+            tmp_path,
+            mimetype="audio/mpeg",
+            as_attachment=True,
+            download_name=f"{Path(rel_path).stem}.mp3"
+        )
+    except Exception as exc:
+        return jsonify({"error": f"Unable to generate audio: {str(exc)}"}), 500
 
 
 if __name__ == "__main__":

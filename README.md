@@ -2,6 +2,17 @@
 
 Flask web app for reading papers from a linked folder, listening to extracted text, and saving study annotations.
 
+## Screenshots
+
+| Main View | Focus Split View |
+| --- | --- |
+| ![Main view screenshot](images/image-1.png) | ![Focus split view screenshot](images/image.png) |
+
+| Dark Mode / Light Mode | Bionic Reading |
+| --- | --- |
+| ![Dark mode and light mode screenshot](images/image-2.png) | ![Bionic reading screenshot](images/image-3.png) |
+
+
 ## Features
 
 - Link any local folder that contains `.pdf` files.
@@ -10,10 +21,15 @@ Flask web app for reading papers from a linked folder, listening to extracted te
 - Preview each PDF in-app.
 - Extract and display text page-by-page.
 - Read papers aloud with browser text-to-speech.
+- Pause and resume reading from the focus split view.
 - Click text lines to highlight them.
 - Add comments tied to specific page/line selections.
 - Keep free-form notes per paper.
 - Save highlights/comments/notes to local JSON storage.
+- Create MP3 files from your papers.
+- Use a focus split view for side-by-side PDF preview and extracted text.
+- Toggle bionic reading for faster scanning.
+- Switch between dark mode and light mode.
 
 ## Quick Start
 
