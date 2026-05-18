@@ -1,6 +1,7 @@
 const state = {
   currentFile: "",
   pdfs: [],
+  annotationIndex: {},
   pages: [],
   bionicReading: false,
   focusModeEnabled: false,
@@ -14,6 +15,8 @@ const state = {
   isReadingPaused: false,
   annotations: {
     notes: "",
+    tags: [],
+    status: "not-started",
     highlights: [],
     comments: [],
   },
@@ -30,6 +33,10 @@ const el = {
   pdfFrame: document.getElementById("pdfFrame"),
   paperText: document.getElementById("paperText"),
   notesInput: document.getElementById("notesInput"),
+  statusSelect: document.getElementById("statusSelect"),
+  tagList: document.getElementById("tagList"),
+  tagInput: document.getElementById("tagInput"),
+  addTagBtn: document.getElementById("addTagBtn"),
   commentInput: document.getElementById("commentInput"),
   addCommentBtn: document.getElementById("addCommentBtn"),
   commentList: document.getElementById("commentList"),
@@ -61,6 +68,26 @@ const SPLIT_MAX_RATIO = 0.7;
 const SPLIT_HANDLE_WIDTH = 12;
 const SPLIT_PANE_MIN_WIDTH = 240;
 
+const STATUS_META = {
+  "not-started": { label: "Not started", className: "status-not-started" },
+  reading: { label: "Reading", className: "status-reading" },
+  read: { label: "Read", className: "status-read" },
+};
+
+let autoSaveTimer = null;
+const AUTO_SAVE_DELAY = 800;
+
+function scheduleAutoSave() {
+  if (!state.currentFile) return;
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer);
+  }
+  autoSaveTimer = setTimeout(() => {
+    saveAnnotations(true).catch(() => {});
+    autoSaveTimer = null;
+  }, AUTO_SAVE_DELAY);
+}
+
 function showToast(message) {
   el.toast.textContent = message;
   el.toast.classList.add("visible");
@@ -80,6 +107,134 @@ function clamp(value, min, max) {
 
 function highlightKey(page, line) {
   return `${page}:${line}`;
+}
+
+function normalizeStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  if (normalized === "not started") {
+    return "not-started";
+  }
+
+  if (normalized === "in progress" || normalized === "in-progress" || normalized === "started") {
+    return "reading";
+  }
+
+  if (normalized === "done" || normalized === "finished") {
+    return "read";
+  }
+
+  return STATUS_META[normalized] ? normalized : "not-started";
+}
+
+function normalizeTag(tag) {
+  return String(tag || "").trim().replace(/\s+/g, " ");
+}
+
+function statusMeta(status) {
+  return STATUS_META[normalizeStatus(status)] || STATUS_META["not-started"];
+}
+
+function getCurrentAnnotationSummary(file) {
+  return state.annotationIndex[annotationKeyFor(file)] || {};
+}
+
+function storeCurrentAnnotationSummary() {
+  if (!state.currentFile) {
+    return;
+  }
+
+  state.annotationIndex[annotationKeyFor(state.currentFile)] = {
+    status: normalizeStatus(state.annotations.status),
+    tags: [...(state.annotations.tags || [])],
+    updatedAt: state.annotations.updatedAt || null,
+  };
+}
+
+function loadAnnotationSummary() {
+  return api("/api/annotations-summary")
+    .then((data) => {
+      state.annotationIndex = data || {};
+    })
+    .catch(() => {
+      state.annotationIndex = {};
+    });
+}
+
+function renderTagList() {
+  el.tagList.innerHTML = "";
+  const tags = state.annotations.tags || [];
+
+  if (!tags.length) {
+    const empty = document.createElement("span");
+    empty.className = "tag-empty";
+    empty.textContent = "No tags yet.";
+    el.tagList.appendChild(empty);
+    return;
+  }
+
+  for (const tag of tags) {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+
+    const label = document.createElement("span");
+    label.className = "tag-chip-label";
+    label.textContent = tag;
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tag-chip-remove";
+    remove.setAttribute("aria-label", `Remove tag ${tag}`);
+    remove.textContent = "×";
+    remove.addEventListener("click", () => removeTag(tag));
+
+    chip.append(label, remove);
+    el.tagList.appendChild(chip);
+  }
+}
+
+function syncAnnotationControls() {
+  el.statusSelect.value = normalizeStatus(state.annotations.status);
+  renderTagList();
+}
+
+function setCurrentPaperSummary() {
+  storeCurrentAnnotationSummary();
+  renderPdfList();
+}
+
+function setAnnotationStatus(status) {
+  state.annotations.status = normalizeStatus(status);
+  el.statusSelect.value = state.annotations.status;
+  setCurrentPaperSummary();
+  scheduleAutoSave();
+}
+
+function addTag(tagValue) {
+  const tag = normalizeTag(tagValue);
+  if (!tag) {
+    return;
+  }
+
+  const existing = new Set((state.annotations.tags || []).map((item) => item.toLowerCase()));
+  if (existing.has(tag.toLowerCase())) {
+    el.tagInput.value = "";
+    return;
+  }
+
+  state.annotations.tags.push(tag);
+  el.tagInput.value = "";
+  renderTagList();
+  setCurrentPaperSummary();
+  scheduleAutoSave();
+}
+
+function removeTag(tagValue) {
+  const target = normalizeTag(tagValue).toLowerCase();
+  state.annotations.tags = (state.annotations.tags || []).filter((tag) => tag.toLowerCase() !== target);
+  renderTagList();
+  setCurrentPaperSummary();
+  scheduleAutoSave();
 }
 
 function currentHighlightSet() {
@@ -156,6 +311,7 @@ async function pickFolder() {
     state.pdfs = (await collectPdfFiles(directoryHandle)).sort((a, b) =>
       a.localeCompare(b, undefined, { sensitivity: "base" }),
     );
+    await loadAnnotationSummary();
 
     el.folderInput.value = directoryHandle.name || "Browser selected folder";
 
@@ -200,7 +356,24 @@ function renderPdfList() {
 
   for (const file of state.pdfs) {
     const item = document.createElement("li");
-    item.textContent = file;
+    item.className = "pdf-item";
+
+    const summary = getCurrentAnnotationSummary(file);
+    const meta = statusMeta(summary.status);
+
+    const row = document.createElement("div");
+    row.className = "pdf-item-row";
+
+    const name = document.createElement("span");
+    name.className = "pdf-item-name";
+    name.textContent = file;
+
+    const pill = document.createElement("span");
+    pill.className = `status-pill ${meta.className}`;
+    pill.textContent = meta.label;
+
+    row.append(name, pill);
+    item.appendChild(row);
     if (file === state.currentFile) {
       item.classList.add("active");
     }
@@ -211,7 +384,7 @@ function renderPdfList() {
 
 async function loadPdfList() {
   try {
-    const data = await api("/api/pdfs");
+    const [data] = await Promise.all([api("/api/pdfs"), loadAnnotationSummary()]);
     state.pdfs = (data.files || []).filter(
       (file) => typeof file === "string" && file.toLowerCase().endsWith(".pdf"),
     );
@@ -248,9 +421,12 @@ function resetReaderPanels() {
   el.pdfFrame.src = "";
   el.paperText.innerHTML = "";
   el.notesInput.value = "";
+  el.statusSelect.value = "not-started";
+  el.tagInput.value = "";
+  el.tagList.innerHTML = "";
   el.commentList.innerHTML = "";
   state.pages = [];
-  state.annotations = { notes: "", highlights: [], comments: [] };
+  state.annotations = { notes: "", tags: [], status: "not-started", highlights: [], comments: [], updatedAt: null };
   state.selectedLine = null;
   el.selectedLineHint.textContent = "Select a line in the text panel first.";
 }
@@ -437,7 +613,7 @@ function renderTextPanel() {
 
 function renderComments() {
   el.commentList.innerHTML = "";
-  const comments = state.annotations.comments || [];
+  const comments = Array.isArray(state.annotations.comments) ? state.annotations.comments.slice() : [];
 
   if (!comments.length) {
     const item = document.createElement("li");
@@ -446,9 +622,39 @@ function renderComments() {
     return;
   }
 
+  function parseNum(v) {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return v;
+    const m = String(v).match(/(\d+)/);
+    return m ? parseInt(m[1], 10) : 0;
+  }
+
+  comments.sort((a, b) => {
+    const pa = parseNum(a.page);
+    const pb = parseNum(b.page);
+    if (pa !== pb) return pa - pb;
+    const la = parseNum(a.line);
+    const lb = parseNum(b.line);
+    return la - lb;
+  });
+
   for (const comment of comments) {
     const item = document.createElement("li");
-    item.innerHTML = `<strong>Page ${comment.page}, line ${comment.line}</strong><br>${comment.comment}`;
+    item.className = "comment-item";
+
+    const header = document.createElement("div");
+    header.className = "comment-header";
+    header.textContent = `Page ${comment.page}, line ${comment.line}`;
+
+    const body = document.createElement("div");
+    body.className = "comment-body";
+    body.textContent = comment.comment || comment.text || "";
+
+    item.append(header, body);
+    item.addEventListener("click", () => {
+      goToLine(comment.page, comment.line);
+    });
+
     el.commentList.appendChild(item);
   }
 }
@@ -514,6 +720,49 @@ function selectLine(page, line, text, node) {
   }
 }
 
+function goToLine(page, line) {
+  // Do not toggle highlight; just focus/scroll/select the line for context
+  clearSelectedUI();
+  const p = parseInt(String(page || "").replace(/[^0-9]/g, ""), 10) || null;
+  const l = parseInt(String(line || "").replace(/[^0-9]/g, ""), 10) || null;
+
+  if (p === null || l === null) {
+    showToast(`Invalid line reference: page ${page}, line ${line}`);
+    return;
+  }
+
+  const selector = `.text-line[data-page='${p}'][data-line='${l}']`;
+  let node = document.querySelector(selector);
+  if (!node) {
+    // fallback: try to find any line on page p and nearest line number
+    const pageNodes = Array.from(document.querySelectorAll(`.text-line[data-page='${p}']`));
+    if (pageNodes.length) {
+      // find node with closest line number
+      let closest = null;
+      let bestDiff = Infinity;
+      for (const n of pageNodes) {
+        const nl = parseInt(n.dataset.line || "", 10) || 0;
+        const diff = Math.abs(nl - l);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          closest = n;
+        }
+      }
+      node = closest;
+    }
+  }
+
+  if (!node) {
+    showToast(`Line not found: page ${p}, line ${l}`);
+    return;
+  }
+
+  node.classList.add("selected");
+  state.selectedLine = { page: p, line: parseInt(node.dataset.line || "", 10), text: node.dataset.text };
+  el.selectedLineHint.textContent = `Selected: page ${state.selectedLine.page}, line ${state.selectedLine.line}`;
+  node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 async function openPdf(file) {
   state.speechSessionId += 1;
   speechSynthesis.cancel();
@@ -554,16 +803,22 @@ async function openPdf(file) {
     state.pages = textData.pages || [];
     state.annotations = {
       notes: annotationData.notes || "",
+      tags: Array.isArray(annotationData.tags) ? annotationData.tags : [],
+      status: normalizeStatus(annotationData.status),
       highlights: annotationData.highlights || [],
       comments: annotationData.comments || [],
+      updatedAt: annotationData.updatedAt || null,
     };
+    storeCurrentAnnotationSummary();
 
     state.selectedLine = null;
     el.notesInput.value = state.annotations.notes;
     el.commentInput.value = "";
-    el.selectedLineHint.textContent = "Select a line in the text panel first.";
+    const comments = Array.isArray(state.annotations.comments) ? state.annotations.comments.slice() : [];
+    syncAnnotationControls();
     renderTextPanel();
     renderComments();
+    renderPdfList();
   } catch (err) {
     showToast(err.message);
   }
@@ -595,6 +850,10 @@ function addComment() {
   showToast("Comment added.");
 }
 
+function commitTagFromInput() {
+  addTag(el.tagInput.value);
+}
+
 async function saveAnnotations() {
   if (!state.currentFile) {
     showToast("Open a paper first.");
@@ -602,13 +861,22 @@ async function saveAnnotations() {
   }
 
   state.annotations.notes = el.notesInput.value;
+  state.annotations.status = normalizeStatus(el.statusSelect.value);
+  state.annotations.tags = (state.annotations.tags || []).map((tag) => normalizeTag(tag)).filter(Boolean);
+  state.annotations.updatedAt = null; // Ensure updatedAt is handled consistently
+  storeCurrentAnnotationSummary();
 
   try {
-    await api(`/api/annotations?file=${encodeURIComponent(annotationKeyFor(state.currentFile))}`, {
+    const response = await api(`/api/annotations?file=${encodeURIComponent(annotationKeyFor(state.currentFile))}`, {
       method: "PUT",
       body: JSON.stringify(state.annotations),
     });
-    showToast("Annotations saved.");
+    state.annotations.updatedAt = response.updatedAt || state.annotations.updatedAt;
+    storeCurrentAnnotationSummary();
+    renderPdfList();
+    if (!silent) {
+      showToast("Annotations saved.");
+    }
   } catch (err) {
     showToast(err.message);
   }
@@ -1092,7 +1360,17 @@ function bindEvents() {
     loadPdfList();
   });
   el.addCommentBtn.addEventListener("click", addComment);
-  el.saveBtn.addEventListener("click", saveAnnotations);
+  el.addTagBtn.addEventListener("click", commitTagFromInput);
+  el.saveBtn.addEventListener("click", () => saveAnnotations(false));
+  el.statusSelect.addEventListener("change", () => {
+    setAnnotationStatus(el.statusSelect.value);
+  });
+  el.tagInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitTagFromInput();
+    }
+  });
   el.splitToggleBtn.addEventListener("click", toggleSplitView);
   el.focusExitBtn.addEventListener("click", toggleSplitView);
   el.splitDivider.addEventListener("pointerdown", beginSplitResize);

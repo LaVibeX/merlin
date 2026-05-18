@@ -25,6 +25,18 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 ANNOTATIONS_FILE = DATA_DIR / "annotations.json"
 
 DEFAULT_SETTINGS: dict[str, Any] = {"pdf_folder": ""}
+ALLOWED_STATUS_VALUES = {"not-started", "reading", "read"}
+STATUS_ALIASES = {
+    "not started": "not-started",
+    "not-started": "not-started",
+    "in progress": "reading",
+    "in-progress": "reading",
+    "reading": "reading",
+    "started": "reading",
+    "read": "read",
+    "done": "read",
+    "finished": "read",
+}
 
 app = Flask(__name__)
 
@@ -272,10 +284,61 @@ def extract_text_lines_from_reader(reader: PdfReader) -> list[dict[str, Any]]:
 def default_annotations() -> dict[str, Any]:
     return {
         "notes": "",
+        "tags": [],
+        "status": "not-started",
         "highlights": [],
         "comments": [],
         "updatedAt": None,
     }
+
+
+def normalize_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    return STATUS_ALIASES.get(normalized, normalized if normalized in ALLOWED_STATUS_VALUES else "not-started")
+
+
+def normalize_tags(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        tag = str(item).strip()
+        if not tag:
+            continue
+
+        key = tag.lower()
+        if key in seen:
+            continue
+
+        seen.add(key)
+        tags.append(tag)
+
+    return tags
+
+
+def normalize_annotations_payload(payload: Any) -> dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    sanitized = default_annotations()
+    sanitized.update(
+        {
+            "notes": str(source.get("notes", "")),
+            "tags": normalize_tags(source.get("tags", [])),
+            "status": normalize_status(source.get("status", "not-started")),
+            "highlights": source.get("highlights", []),
+            "comments": source.get("comments", []),
+            "updatedAt": source.get("updatedAt"),
+        }
+    )
+
+    if not isinstance(sanitized["highlights"], list):
+        sanitized["highlights"] = []
+
+    if not isinstance(sanitized["comments"], list):
+        sanitized["comments"] = []
+
+    return sanitized
 
 
 @app.route("/")
@@ -386,8 +449,26 @@ def get_annotations() -> Any:
         return jsonify({"error": "Query param 'file' is required."}), 400
 
     data = read_json(ANNOTATIONS_FILE, {})
-    payload = data.get(rel_path, default_annotations())
+    payload = normalize_annotations_payload(data.get(rel_path, default_annotations()))
     return jsonify(payload)
+
+
+@app.get("/api/annotations-summary")
+def get_annotations_summary() -> Any:
+    ensure_data_files()
+    data = read_json(ANNOTATIONS_FILE, {})
+
+    summary: dict[str, dict[str, Any]] = {}
+    if isinstance(data, dict):
+        for rel_path, payload in data.items():
+            normalized = normalize_annotations_payload(payload)
+            summary[rel_path] = {
+                "status": normalized["status"],
+                "tags": normalized["tags"],
+                "updatedAt": normalized["updatedAt"],
+            }
+
+    return jsonify(summary)
 
 
 @app.put("/api/annotations")
@@ -399,12 +480,8 @@ def save_annotations() -> Any:
 
     body = request.get_json(silent=True) or {}
 
-    sanitized = {
-        "notes": str(body.get("notes", "")),
-        "highlights": body.get("highlights", []),
-        "comments": body.get("comments", []),
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
-    }
+    sanitized = normalize_annotations_payload(body)
+    sanitized["updatedAt"] = datetime.now(timezone.utc).isoformat()
 
     if not isinstance(sanitized["highlights"], list) or not isinstance(sanitized["comments"], list):
         return jsonify({"error": "Highlights and comments must be arrays."}), 400

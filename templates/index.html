@@ -98,6 +98,27 @@
         <div class="notes-grid">
           <article>
             <h3>Paper Notes</h3>
+            <div class="notes-meta">
+              <div class="field-group">
+                <label for="statusSelect">Reading Status</label>
+                <select id="statusSelect" aria-label="Reading status">
+                  <option value="not-started">Not started</option>
+                  <option value="reading">Reading</option>
+                  <option value="read">Read</option>
+                </select>
+              </div>
+
+              <div class="field-group tags-group">
+                <label for="tagInput">Tags</label>
+                <div class="tag-editor">
+                  <div id="tagList" class="tag-list" aria-label="Paper tags"></div>
+                  <div class="tag-entry-row">
+                    <input id="tagInput" type="text" placeholder="Add a tag and press Enter" />
+                    <button id="addTagBtn" class="secondary" type="button">Add</button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <textarea id="notesInput" rows="4" placeholder="Write your summary, key ideas, or TODOs..."></textarea>
           </article>
 

@@ -240,6 +240,48 @@ button.accent:hover {
   word-break: break-word;
 }
 
+.pdf-item-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.pdf-item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-not-started {
+  background: #f4efe4;
+  color: #8a5c1d;
+  border-color: #e2d5bf;
+}
+
+.status-reading {
+  background: #ddeef7;
+  color: #165a7a;
+  border-color: #bfdceb;
+}
+
+.status-read {
+  background: #dcefe5;
+  color: #2c6b41;
+  border-color: #bfd9c7;
+}
+
 .pdf-list li:hover {
   background: #f0f4f3;
 }
@@ -517,6 +559,88 @@ body.resizing-split * {
   gap: 0.85rem;
 }
 
+.notes-meta {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.field-group label {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field-group select,
+.field-group input {
+  width: 100%;
+}
+
+.tag-editor {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-height: 2.1rem;
+}
+
+.tag-empty {
+  color: var(--muted);
+  font-size: 0.92rem;
+  padding: 0.2rem 0;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.55rem 0.28rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.84rem;
+}
+
+.tag-chip-label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-chip-remove {
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border-radius: 999px;
+  border: none;
+  background: rgba(93, 106, 112, 0.12);
+  color: var(--muted);
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+.tag-entry-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#statusSelect {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0.55rem 0.7rem;
+  font-family: inherit;
+  font-weight: 600;
+}
+
 .focus-exit-btn {
   position: fixed;
   top: 0.8rem;
@@ -627,6 +751,20 @@ body.focus-reader .paper-text {
   background: var(--surface);
 }
 
+.comment-item { cursor: pointer; }
+.comment-item:hover { background: #f3fbfa; }
+
+/* Dark-mode: ensure hovered comment boxes remain readable */
+body.dark-mode .comment-item:hover {
+  background: #203038;
+  color: var(--ink);
+}
+
+body.dark-mode .comment-item .comment-header,
+body.dark-mode .comment-item .comment-body {
+  color: var(--ink);
+}
+
 body.dark-mode .bg-shape-left {
   background: rgba(240, 125, 76, 0.2);
 }
@@ -642,6 +780,34 @@ body.dark-mode .text-line:hover {
 
 body.dark-mode .pdf-list li.active {
   background: #21414b;
+}
+
+body.dark-mode .status-not-started {
+  background: #3b3125;
+  color: #f3c67d;
+  border-color: #594730;
+}
+
+body.dark-mode .status-reading {
+  background: #143444;
+  color: #8fc6df;
+  border-color: #29556a;
+}
+
+body.dark-mode .status-read {
+  background: #183625;
+  color: #92d1a8;
+  border-color: #2f5940;
+}
+
+body.dark-mode .tag-chip {
+  background: #1e2a31;
+  border-color: #30434c;
+}
+
+body.dark-mode .tag-chip-remove {
+  background: rgba(156, 176, 184, 0.14);
+  color: var(--muted);
 }
 
 body.dark-mode #pdfFrame,
